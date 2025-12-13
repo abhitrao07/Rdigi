@@ -295,7 +295,7 @@
       const measure = (px) => { ctx.font = `${px}px Arial, sans-serif`; return ctx.measureText(label).width; };
       let textWidth = measure(fontSize);
       while (textWidth > maxWidth && fontSize > 8) { fontSize -= 1; textWidth = measure(fontSize); }
-      const paddingAboveQR = Math.floor(qrPx * 0.02);
+      const paddingAboveQR = Math.floor(qrPx * 0.025);
       const textX = x + (qrPx / 2);
       let textY = y + qrPx + paddingAboveQR;
       if (textY < 4) textY = 4;
