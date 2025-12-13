@@ -297,7 +297,7 @@
       while (textWidth > maxWidth && fontSize > 8) { fontSize -= 1; textWidth = measure(fontSize); }
       const paddingAboveQR = Math.floor(qrPx * 0.02);
       const textX = x + (qrPx / 2);
-      let textY = y - paddingAboveQR - fontSize;
+      let textY = y + qrPx + paddingAboveQR;
       if (textY < 4) textY = 4;
       ctx.lineWidth = Math.max(2, Math.floor(fontSize * 0.12));
       ctx.strokeText(label, textX, textY);
