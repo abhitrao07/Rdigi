@@ -278,7 +278,7 @@
       const qrCanvas = document.createElement('canvas');
       await QRCode.toCanvas(qrCanvas, waUrl, { width: 400, margin: 1 });
 
-      const qrPx = Math.floor(canvas.width * 0.15);
+      const qrPx = Math.floor(canvas.width * 0.18);
       const rightMargin  = Math.floor(canvas.width * 0.15);
       const bottomMargin = Math.floor(canvas.width * 0.1);
       const x = canvas.width - qrPx - rightMargin;
