@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Jio Partner Creative Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --blue:#0078ff; --blue-dark:#005fcc; --muted:#777; --ok:#137333; --err:#b00020; }
+    body { font-family: Arial, sans-serif; margin: 30px; text-align: center; }
+    .container { max-width: 900px; margin: auto; }
+    canvas { border: 1px solid #ccc; margin-top: 16px; max-width: 100%; }
+    .row { display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap; }
+    input[type="text"], input[type="file"], button { padding: 10px; font-size: 16px; }
+    input[type="text"] { width: 60%; min-width: 260px; }
+    button { cursor: pointer; background: var(--blue); color: white; border: none; border-radius: 6px; padding: 10px 16px; }
+    button[disabled] { opacity: 0.6; cursor: not-allowed; }
+    button:hover:not([disabled]) { background: var(--blue-dark); }
+    .hint { font-size: 14px; color: #666; margin-bottom: 6px; }
+    .status { font-size: 13px; color: #444; margin-top: 8px; min-height: 1.2em; white-space: pre-line; }
+    .subhead { font-size: 14px; margin: 6px 0 10px; }
+    .ok { color: var(--ok); }
+    .err { color: var(--err); }
+    progress { width: 60%; height: 12px; }
+    /* File line with red clear "×" */
+    .fileline { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:4px; }
+    .filename { font-size: 13px; color:#333; }
+    .clearX { font-size: 18px; line-height: 1; cursor:pointer; color:#d11; user-select:none; }
+    .clearX:hover { color:#a00; }
+  </style>
+  <!-- QR generator -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+  <!-- CSV parser -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Excel parser -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Zip + FileSaver -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h2>Generate Your Jio Creative</h2>
+    <div id="entryCount" class="subhead ok">Entries: 0</div>
+    <p class="hint">Upload Excel/CSV for bulk (or) enter a single Partner ID.</p>
+
+    <!-- Upload mapping -->
+    <div class="row">
+      <input type="file" id="mappingFile" accept=".xlsx,.xls,.csv" />
+      <button id="downloadTemplateBtn" type="button">Download CSV Template</button>
+    </div>
+    <div class="fileline" id="fileLine" style="display:none;">
+      <span class="filename" id="fileNameLabel"></span>
+      <span class="clearX" id="clearUpload" title="Clear uploaded file">×</span>
+    </div>
+
+    <!-- Single entry -->
+    <div class="row" style="margin-top:8px;">
+      <input type="text" id="partnerId" placeholder="Enter Partner ID (used if no file)" />
+    </div>
+
+    <!-- Single CTA -->
+    <div class="row">
+      <button id="genBtn" disabled>Generate</button>
+    </div>
+
+    <div id="status" class="status">Loading default mapping…</div>
+    <progress id="bulkProgress" value="0" max="100" style="display:none;"></progress>
+
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script>
+    const baseImagePath = "base.jpg";
+    const partnerCsvUrl = "partners.csv"; // optional
+
+    let SITE_MAP = {};
+    let UPLOADED_MAP = {};
+    let ACTIVE_MAP = {};
+    let uploadedFilename = "";
+    let uploadedIds = [];
+
+    const mappingFileEl = document.getElementById('mappingFile');
+    const fileLineEl    = document.getElementById('fileLine');
+    const fileNameLabel = document.getElementById('fileNameLabel');
+    const clearUploadEl = document.getElementById('clearUpload');
+    const partnerIdEl   = document.getElementById('partnerId');
+    const genBtn        = document.getElementById('genBtn');
+    const statusEl      = document.getElementById('status');
+    const bulkProgress  = document.getElementById('bulkProgress');
+    const templateBtn   = document.getElementById('downloadTemplateBtn');
+    const entryCountEl  = document.getElementById('entryCount');
+
+    const normalizeHeader = (h) => (h || "").toString().replace(/[^a-z0-9]/gi, "").toLowerCase();
+    const normalizeId = (id) => (id || "").toString().trim().toUpperCase();
+
+    function setEntryCount(n) {
+      entryCountEl.textContent = `Entries: ${n}`;
+    }
+
+    function rebuildActiveMap() {
+      ACTIVE_MAP = { ...SITE_MAP, ...UPLOADED_MAP };
+      updateGenerateState();
+      // green sub-heading shows ONLY uploaded count
+      setEntryCount(uploadedIds.length);
+    }
+
+    function updateGenerateState() {
+      const hasUpload = uploadedIds.length > 0;
+      const hasSingle = partnerIdEl.value.trim().length > 0;
+      genBtn.disabled = !(hasUpload || hasSingle);
+    }
+
+    partnerIdEl.addEventListener('input', updateGenerateState);
+
+    async function loadSiteCsv() {
+      try {
+        const res = await fetch(partnerCsvUrl + "?v=" + Date.now(), { cache: "no-store" });
+        if (!res.ok) return false;
+        const text = await res.text();
+        if (!text.trim()) return false;
+        const papa = Papa.parse(text, { header: true, skipEmptyLines: true, transformHeader: normalizeHeader });
+        const map = {};
+        (papa.data || []).forEach(row => {
+          const id   = normalizeId(row.partner_id || row.partnerid || row.id);
+          const name = (row.store_name || row.storename || row.store || "").toString().trim();
+          if (id && name) map[id] = name;
+        });
+        SITE_MAP = map;
+        return true;
+      } catch { return false; }
+    }
+
+    function withTimeout(promise, ms) {
+      return Promise.race([ promise, new Promise(res => setTimeout(() => res(false), ms)) ]);
+    }
+
+    // CSV Template
+    templateBtn.addEventListener('click', () => {
+      const header = "partner_id,store_name\n";
+      const sample = ["12345,Sharma Mobile Store", "778910,Raj Telecom"].join("\n");
+      const blob = new Blob([header + sample + "\n"], { type: "text/csv;charset=utf-8" });
+      const stamp = new Date().toISOString().slice(0,10);
+      saveAs(blob, `partner_mapping_template_${stamp}.csv`);
+    });
+
+    // Upload (robust CSV/Excel) -> REPLACE uploaded map
+    mappingFileEl.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      uploadedFilename = file.name;
+      statusEl.textContent = "Reading uploaded file…";
+      let rows = [];
+
+      try {
+        if (file.name.toLowerCase().endsWith('.csv')) {
+          const textRaw = await file.text();
+          const text = textRaw.replace(/^\uFEFF/, '');
+          const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim().length);
+          if (!lines.length) throw new Error("CSV appears empty");
+
+          const sample = lines.slice(0, Math.min(lines.length, 3)).join('\n');
+          const commaCount = (sample.match(/,/g) || []).length;
+          const semiCount  = (sample.match(/;/g) || []).length;
+          const delim = semiCount > commaCount ? ';' : ',';
+
+          const splitRow = (row) => {
+            const out = []; let cur = '', inQ = false;
+            for (let i = 0; i < row.length; i++) {
+              const c = row[i], n = row[i+1];
+              if (c === '"' && n === '"') { cur += '"'; i++; continue; }
+              if (c === '"') { inQ = !inQ; continue; }
+              if (!inQ && c === delim) { out.push(cur); cur = ''; continue; }
+              cur += c;
+            }
+            out.push(cur);
+            return out.map(s => s.trim());
+          };
+
+          const headerCells = splitRow(lines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9]/g,''));
+          const looksHeadered =
+            headerCells.includes('partnerid') || headerCells.includes('partner_id') || headerCells.includes('id') ||
+            headerCells.includes('storename') || headerCells.includes('store_name') || headerCells.includes('store');
+
+          const dataLines = looksHeadered ? lines.slice(1) : lines;
+
+          for (const row of dataLines) {
+            const cells = splitRow(row);
+            if (cells.length < 2) continue;
+            let idCell, nameCell;
+            if (looksHeadered) {
+              const idxId =
+                headerCells.indexOf('partner_id') !== -1 ? headerCells.indexOf('partner_id') :
+                headerCells.indexOf('partnerid')  !== -1 ? headerCells.indexOf('partnerid')  :
+                headerCells.indexOf('id');
+              const idxName =
+                headerCells.indexOf('store_name') !== -1 ? headerCells.indexOf('store_name') :
+                headerCells.indexOf('storename')  !== -1 ? headerCells.indexOf('storename')  :
+                headerCells.indexOf('store');
+              if (idxId === -1 || idxName === -1) continue;
+              idCell   = cells[idxId] ?? '';
+              nameCell = cells[idxName] ?? '';
+            } else {
+              idCell   = cells[0];
+              nameCell = cells[1];
+            }
+            const id   = normalizeId(idCell);
+            const name = (nameCell || "").toString().trim();
+            if (id && name) rows.push([id, name]);
+          }
+        } else {
+          const buf = new Uint8Array(await file.arrayBuffer());
+          const wb = XLSX.read(buf, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+          json.forEach(obj => {
+            const norm = {};
+            Object.keys(obj).forEach(k => norm[normalizeHeader(k)] = obj[k]);
+            const id   = normalizeId(norm.partner_id || norm.partnerid || norm.id);
+            const name = (norm.store_name || norm.storename || norm.store || "").toString().trim();
+            if (id && name) rows.push([id, name]);
+          });
+        }
+
+        // Replace upload map + keep order
+        UPLOADED_MAP = {};
+        uploadedIds = [];
+        rows.forEach(([id, name]) => {
+          if (!(id in UPLOADED_MAP)) uploadedIds.push(id);
+          UPLOADED_MAP[id] = name;
+        });
+
+        if (uploadedIds.length > 0) {
+          fileNameLabel.textContent = uploadedFilename + ` — ${uploadedIds.length} ID(s)`;
+          fileLineEl.style.display = "flex";
+          statusEl.textContent = "Uploaded mapping ready.";
+        } else {
+          fileLineEl.style.display = "none";
+          statusEl.textContent = "Upload parsed with 0 rows.";
+        }
+      } catch (err) {
+        fileLineEl.style.display = "none";
+        statusEl.textContent = `Upload failed: ${err.message}`;
+        UPLOADED_MAP = {}; uploadedIds = []; uploadedFilename = "";
+      }
+      rebuildActiveMap();
+    });
+
+    clearUploadEl.addEventListener('click', () => {
+      UPLOADED_MAP = {};
+      uploadedIds = [];
+      uploadedFilename = "";
+      mappingFileEl.value = "";
+      fileLineEl.style.display = "none";
+      statusEl.textContent = "Uploaded mapping cleared. Using Site CSV only (if available).";
+      rebuildActiveMap();
+    });
+
+    // Init with timeout so UI never hangs
+    document.addEventListener('DOMContentLoaded', async () => {
+      const ok = await withTimeout(loadSiteCsv(), 4000);
+      statusEl.textContent = ok ? "Ready." : "Ready. (Site CSV not found or slow — you can still upload a file or enter a Partner ID.)";
+      rebuildActiveMap();
+      updateGenerateState();
+    });
+
+    async function drawCreative(partnerIdRaw) {
+      const partnerId = normalizeId(partnerIdRaw);
+      const storeName = ACTIVE_MAP[partnerId] || "";
+
+      const baseImg = await loadImage(baseImagePath);
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = baseImg.width;
+      canvas.height = baseImg.height;
+      ctx.drawImage(baseImg, 0, 0);
+
+      const waUrl = `https://wa.me/917001770017?text=GetJioSIM_${encodeURIComponent(partnerIdRaw.toString().trim())}`;
+      const qrCanvas = document.createElement('canvas');
+      await QRCode.toCanvas(qrCanvas, waUrl, { width: 400, margin: 1 });
+
+      const qrPx = Math.floor(canvas.width * 0.15);
+      const rightMargin  = Math.floor(canvas.width * 0.11);
+      const bottomMargin = Math.floor(canvas.width * 0.27);
+      const x = canvas.width - qrPx - rightMargin;
+      const y = canvas.height - qrPx - bottomMargin;
+      ctx.drawImage(qrCanvas, x, y, qrPx, qrPx);
+
+      const label = storeName ? `${partnerId} | ${storeName}` : `${partnerId}`;
+      let fontSize = Math.max(10, Math.floor(canvas.width * 0.03)) + 1;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "#000";
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      const maxWidth = qrPx * 0.95;
+      const measure = (px) => { ctx.font = `${px}px Arial, sans-serif`; return ctx.measureText(label).width; };
+      let textWidth = measure(fontSize);
+      while (textWidth > maxWidth && fontSize > 8) { fontSize -= 1; textWidth = measure(fontSize); }
+      const paddingAboveQR = Math.floor(qrPx * 0.02);
+      const textX = x + (qrPx / 2);
+      let textY = y - paddingAboveQR - fontSize;
+      if (textY < 4) textY = 4;
+      ctx.lineWidth = Math.max(2, Math.floor(fontSize * 0.12));
+      ctx.strokeText(label, textX, textY);
+      ctx.fillText(label, textX, textY);
+
+      return new Promise((resolve) => { canvas.toBlob((blob) => resolve(blob), "image/png"); });
+    }
+
+    document.getElementById('genBtn').addEventListener('click', async () => {
+      const count = uploadedIds.length;
+      if (count > 0) {
+        if (count === 1) {
+          statusEl.textContent = "Generating…";
+          const id = uploadedIds[0];
+          const blob = await drawCreative(id);
+          const safe = id.replace(/[^a-z0-9_\-]+/gi, "_").slice(0, 60);
+          saveAs(blob, `creative_${safe}.png`);
+          statusEl.textContent = "Done.";
+        } else {
+          statusEl.textContent = `Generating ${count} creatives…`;
+          bulkProgress.style.display = "inline-block";
+          bulkProgress.value = 0; bulkProgress.max = count;
+          const zip = new JSZip();
+          for (let i = 0; i < count; i++) {
+            const id = uploadedIds[i];
+            const blob = await drawCreative(id);
+            const safe = id.replace(/[^a-z0-9_\-]+/gi, "_").slice(0, 60);
+            zip.file(`creative_${safe}.png`, blob);
+            bulkProgress.value = i + 1;
+            statusEl.textContent = `Generating ${i + 1}/${count}…`;
+          }
+          statusEl.textContent = "Zipping files…";
+          const zipBlob = await zip.generateAsync({ type: "blob" });
+          const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+          saveAs(zipBlob, `creatives_${stamp}.zip`);
+          statusEl.textContent = "Bulk ZIP ready.";
+          bulkProgress.style.display = "none";
+        }
+      } else {
+        const rawId = partnerIdEl.value.trim();
+        if (!rawId) { alert("Please upload a file or enter a Partner ID."); return; }
+        statusEl.textContent = "Generating…";
+        const blob = await drawCreative(rawId);
+        const safe = normalizeId(rawId).replace(/[^a-z0-9_\-]+/gi, "_").slice(0, 60);
+        saveAs(blob, `creative_${safe}.png`);
+        statusEl.textContent = "Done.";
+      }
+    });
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Failed to load base image: " + src));
+        img.src = src + (src.includes("?") ? "&" : "?") + "v=" + Date.now();
+      });
+    }
+  </script>
+</body>
+</html>
