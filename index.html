@@ -286,7 +286,7 @@
       ctx.drawImage(qrCanvas, x, y, qrPx, qrPx);
 
       const label = storeName ? `${partnerId} | ${storeName}` : `${partnerId}`;
-      let fontSize = Math.max(10, Math.floor(canvas.width * 0.03)) + 1;
+      let fontSize = Math.max(10, Math.floor(canvas.width * 0.025)) + 1;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillStyle = "#000";
