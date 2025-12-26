@@ -1,29 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Jio Partner Creative Generator</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="UTF-8" />
+<title>Jio Partner Creative Generator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <style>
-    :root { --blue:#0078ff; --blue-dark:#005fcc; --ok:#137333; }
-    body { font-family: Arial, sans-serif; margin: 30px; text-align: center; }
-    .container { max-width: 900px; margin: auto; }
-    canvas { border: 1px solid #ccc; margin-top: 16px; max-width: 100%; }
-    .row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    input, button { padding: 10px; font-size: 16px; }
-    button { background: var(--blue); color: #fff; border: none; border-radius: 6px; cursor: pointer; }
-    button:hover { background: var(--blue-dark); }
-    button[disabled] { opacity: .5; cursor: not-allowed; }
-    .subhead { color: var(--ok); margin: 8px 0; }
-    .fileline { display:flex; justify-content:center; gap:8px; margin-top:6px; }
-    .clearX { color:#d11; font-size:18px; cursor:pointer; }
-  </style>
+<style>
+  :root { --blue:#0078ff; --blue-dark:#005fcc; --ok:#137333; }
+  body { font-family: Arial, sans-serif; margin:30px; text-align:center; }
+  .container { max-width:900px; margin:auto; }
+  canvas { border:1px solid #ccc; margin-top:16px; max-width:100%; }
+  .row { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  input, button { padding:10px; font-size:16px; }
+  button { background:var(--blue); color:#fff; border:none; border-radius:6px; cursor:pointer; }
+  button:hover { background:var(--blue-dark); }
+  button[disabled] { opacity:.5; cursor:not-allowed; }
+  .subhead { color:var(--ok); margin:8px 0; }
+  .fileline { display:flex; justify-content:center; gap:8px; margin-top:6px; }
+  .clearX { color:#d11; font-size:18px; cursor:pointer; }
+</style>
 
-  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 </head>
 
 <body>
@@ -54,9 +54,8 @@
 
 <script>
 const baseImagePath = "base.jpg";
-let UPLOADED = {};
-let IDS = [];
 
+let DATA = []; // [{id, store, state}]
 const fileInput = document.getElementById("fileInput");
 const fileLine  = document.getElementById("fileLine");
 const fileName  = document.getElementById("fileName");
@@ -64,31 +63,23 @@ const entryCnt  = document.getElementById("entryCount");
 const genBtn    = document.getElementById("generateBtn");
 const singleId  = document.getElementById("singleId");
 
-const normId = v => (v || "").toString().trim().toUpperCase();
-const normTxt = v => (v || "")
-  .toString()
-  .replace(/\u00A0/g," ")
-  .replace(/\s+/g," ")
-  .trim();
+const normId = v => (v||"").toString().trim().toUpperCase();
+const normTxt = v => (v||"").toString().replace(/\u00A0/g," ").replace(/\s+/g," ").trim();
 
 fileInput.addEventListener("change", async e => {
   const file = e.target.files[0];
   if (!file) return;
 
-  UPLOADED = {};
-  IDS = [];
-
-  let rows = [];
+  DATA = [];
 
   if (file.name.endsWith(".csv")) {
     const text = (await file.text()).replace(/\r/g,"\n");
     const lines = text.split("\n").filter(l => l.trim());
-    const headers = lines[0].toLowerCase();
-
     for (let i = 1; i < lines.length; i++) {
-      const [id, name] = lines[i].split(",");
+      const [id, store, state] = lines[i].split(",");
       const pid = normId(id);
-      if (pid) rows.push([pid, normTxt(name)]);
+      const st  = normTxt(state);
+      if (pid && st) DATA.push({ id: pid, store: normTxt(store), state: st });
     }
   } else {
     const buf = await file.arrayBuffer();
@@ -98,23 +89,18 @@ fileInput.addEventListener("change", async e => {
 
     json.forEach(r => {
       const pid = normId(r.partner_id || r.partnerid || r.id);
-      if (pid) rows.push([pid, normTxt(r.store_name || r.storename || r.store)]);
+      const st  = normTxt(r.state);
+      if (pid && st) DATA.push({ id: pid, store: normTxt(r.store_name || r.store || ""), state: st });
     });
   }
 
-  rows.forEach(([id, name]) => {
-    if (!UPLOADED[id]) IDS.push(id);
-    UPLOADED[id] = name || "";
-  });
-
-  fileName.textContent = `${file.name} (${IDS.length})`;
+  fileName.textContent = `${file.name} (${DATA.length})`;
   fileLine.style.display = "flex";
   updateUI();
 });
 
 function clearFile() {
-  UPLOADED = {};
-  IDS = [];
+  DATA = [];
   fileInput.value = "";
   fileLine.style.display = "none";
   updateUI();
@@ -123,27 +109,28 @@ function clearFile() {
 singleId.addEventListener("input", updateUI);
 
 function updateUI() {
-  entryCnt.textContent = `Entries: ${IDS.length}`;
-  genBtn.disabled = !(IDS.length || singleId.value.trim());
+  entryCnt.textContent = `Entries: ${DATA.length}`;
+  genBtn.disabled = !(DATA.length || singleId.value.trim());
 }
 
 document.getElementById("generateBtn").onclick = async () => {
   const zip = new JSZip();
-  const ids = IDS.length ? IDS : [normId(singleId.value)];
 
-  for (const id of ids) {
-    const blob = await drawCreative(id);
-    zip.file(`creative_${id}.png`, blob);
-  }
-
-  if (ids.length === 1) {
-    saveAs(await zip.generateAsync({type:"blob"}), `creative_${ids[0]}.png`);
-  } else {
+  if (DATA.length) {
+    for (const row of DATA) {
+      const blob = await drawCreative(row.id, row.store);
+      const folder = zip.folder(row.state.replace(/[^a-z0-9 ]/gi,"_"));
+      folder.file(`creative_${row.id}.png`, blob);
+    }
     saveAs(await zip.generateAsync({type:"blob"}), "creatives.zip");
+  } else {
+    const id = normId(singleId.value);
+    const blob = await drawCreative(id, "");
+    saveAs(blob, `creative_${id}.png`);
   }
 };
 
-async function drawCreative(id) {
+async function drawCreative(id, store) {
   const img = await loadImage(baseImagePath);
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d");
@@ -153,14 +140,14 @@ async function drawCreative(id) {
   ctx.drawImage(img,0,0);
 
   const qrCanvas = document.createElement("canvas");
-  await QRCode.toCanvas(qrCanvas, `https://wa.me/917000070000?text=Gemini_rd_${id}`);
+  await QRCode.toCanvas(qrCanvas, `https://wa.me/917000070000?text=${id}`);
 
   const qrPx = canvas.width * 0.18;
   const x = canvas.width - qrPx - canvas.width * 0.125;
   const y = canvas.height - qrPx - canvas.width * 0.16;
   ctx.drawImage(qrCanvas, x, y, qrPx, qrPx);
 
-  const label = UPLOADED[id] ? `${id} | ${UPLOADED[id]}` : id;
+  const label = store ? `${id} | ${store}` : id;
   ctx.font = `${canvas.width * 0.025}px Arial`;
   ctx.textAlign = "center";
   ctx.fillText(label, x + qrPx/2, y + qrPx + qrPx*0.08);
@@ -175,8 +162,8 @@ function loadImage(src) {
 }
 
 function downloadTemplate() {
-  const csv = "partner_id,store_name\nT7CA,\nTKC2,\n9561,\n";
-  saveAs(new Blob([csv],{type:"text/csv"}),"partner_template.csv");
+  const csv = "partner_id,store_name,state\nT7CA,Sharma Mobile Store,Maharashtra\nTKC2,,Gujarat\n";
+  saveAs(new Blob([csv],{type:"text/csv"}),"partner_template_statewise.csv");
 }
 </script>
 </body>
